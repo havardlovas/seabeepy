@@ -22,6 +22,8 @@ importlib.reload(georeference)
 importlib.reload(orthorectification)
 importlib.reload(coregistration)
 
+importlib.reload(specim_parsing_utils)
+
 import numpy as np
 
 """
@@ -95,7 +97,7 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
                                                                             'config_file_name'])
 
     config_specim_preprocess = SettingsPreprocess(dtype_datacube = np.float32, # The data type for the datacube
-                                lines_per_chunk= 8000,  # Raw datacube is chunked into this many lines. GB_per_chunk = lines_per_chunk*n_pixels*n_bands*4 bytes
+                                lines_per_chunk= 2000,  # Raw datacube is chunked into this many lines. GB_per_chunk = lines_per_chunk*n_pixels*n_bands*4 bytes
                                 specim_raw_mission_dir = SPECIM_MISSION_FOLDER, # Folder containing several mission
                                 cal_dir = CALIBRATION_DIRECTORY,  # Calibration directory holding all calibrations at all binning levels
                                 reformatted_missions_dir = os.path.join(SPECIM_MISSION_FOLDER, 'processed'), # The fill value for empty cells (select values not occcuring in cube or ancillary data)
@@ -236,7 +238,10 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     # This function parses raw specim data including (spectral, radiometric, geometric) calibrations and nav data
     # into an h5 file. The nav data is written to "raw/nav/" subfolders, whereas hyperspectral data and calibration data 
     # written to "processed/hyperspectral/" and "processed/calibration/" subfolders
+    
+    
     if len(os.listdir(config['Absolute Paths']['h5_folder'])) == 0:
+        print(len(os.listdir(config['Absolute Paths']['h5_folder'])))
         specim_parsing_utils.main(config=config,
                               config_specim=config_specim_preprocess)
     
