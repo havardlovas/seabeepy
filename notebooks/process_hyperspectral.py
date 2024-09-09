@@ -22,6 +22,8 @@ importlib.reload(georeference)
 importlib.reload(orthorectification)
 importlib.reload(coregistration)
 
+importlib.reload(specim_parsing_utils)
+
 import numpy as np
 
 """
@@ -236,7 +238,11 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     # This function parses raw specim data including (spectral, radiometric, geometric) calibrations and nav data
     # into an h5 file. The nav data is written to "raw/nav/" subfolders, whereas hyperspectral data and calibration data 
     # written to "processed/hyperspectral/" and "processed/calibration/" subfolders
+    print(len(os.listdir(config['Absolute Paths']['h5_folder'])))
+    
+    
     if len(os.listdir(config['Absolute Paths']['h5_folder'])) == 0:
+        print(len(os.listdir(config['Absolute Paths']['h5_folder'])))
         specim_parsing_utils.main(config=config,
                               config_specim=config_specim_preprocess)
     
