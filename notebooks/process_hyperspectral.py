@@ -272,7 +272,7 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     #visualize.show_mesh_camera(config, show_mesh = True, show_pose = True, ref_frame='ENU')
 
     # Step 1: Direct georeferencing
-    georeference.main(config_file)
+    #georeference.main(config_file)
 
     # Step 2: Orthorectify the direct georeferenced data (incl metadata) i.e. resampling
     orthorectification.main(config_file)
