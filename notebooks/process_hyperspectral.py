@@ -17,7 +17,6 @@ from gref4hsi.utils import parsing_utils, specim_parsing_utils, resonon_parsing_
 from gref4hsi.utils import visualize
 from gref4hsi.utils.config_utils import prepend_data_dir_to_relative_paths, customize_config
 
-
 #importlib.reload(gref4hsi)
 importlib.reload(georeference)
 importlib.reload(orthorectification)
@@ -38,7 +37,7 @@ This script is meant to be used for testing the processing pipeline of airborne 
 
 
 
-def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, lab_calibration_path, device, processing_lvl, fast_mode = False):
+def main(config_yaml, hsi_mission_folder, geoid_path, config_template_path, lab_calibration_path, device = 'specim', processing_lvl = -1, fast_mode = False, cam_calibrate_dict = None, calibrate_dict_extr=None, coreg_dict=None):
     # Read flight-specific yaml file
     with open(config_yaml, 'r') as file:  
         config_data = yaml.safe_load(file)
@@ -47,10 +46,21 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     # assigning the arguments to variables for simple backwards compatibility
     EPSG_CODE = config_data['mission_epsg']
     RESOLUTION_ORTHOMOSAIC = config_data['resolution_orthomosaic']
+    
+    if 'elevation' in config_data:
+        elevation = config_data['elevation']
+    elif 'flight_altitude' in config_data:
+        elevation = config_data['flight_altitude']
+
     CALIBRATION_DIRECTORY = lab_calibration_path
+
+    if 'dem_ref' in config_data:
+        dem_ref = config_data['dem_ref'] # Either 'geoid' or ellipsoid
+    else:
+        dem_ref = 'ellipsoid' # Default
     
     
-    dem_fold = os.path.join(specim_mission_folder, "dem")
+    dem_fold = os.path.join(hsi_mission_folder, "dem")
 
     if not os.path.exists(dem_fold):
         print('DEM folder does not exist so Geoid is used as terrain instead')
@@ -69,7 +79,7 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     
     # Do coregistration if there is an orthomosaic to compare under "orthomosaic"
     #do_coreg = True
-    ortho_ref_fold = os.path.join(specim_mission_folder, "orthomosaic")
+    ortho_ref_fold = os.path.join(hsi_mission_folder, "orthomosaic")
     do_coreg = False
     if not os.path.exists(ortho_ref_fold):
         print('Coregistration is not done, as there was no reference orthomosaic')
@@ -100,9 +110,9 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
 
     config_specim_preprocess = SettingsPreprocess(dtype_datacube = np.float32, # The data type for the datacube
                                 lines_per_chunk= 2000,  # Raw datacube is chunked into this many lines. GB_per_chunk = lines_per_chunk*n_pixels*n_bands*4 bytes
-                                specim_raw_mission_dir = specim_mission_folder, # Folder containing several mission
+                                specim_raw_mission_dir = hsi_mission_folder, # Folder containing several mission
                                 cal_dir = CALIBRATION_DIRECTORY,  # Calibration directory holding all calibrations at all binning levels
-                                reformatted_missions_dir = os.path.join(specim_mission_folder, 'processed'), # The fill value for empty cells (select values not occcuring in cube or ancillary data)
+                                reformatted_missions_dir = os.path.join(hsi_mission_folder, 'processed'), # The fill value for empty cells (select values not occcuring in cube or ancillary data)
                                 rotation_matrix_hsi_to_body = np.array([[0, 1, 0],
                                                                         [-1, 0, 0],
                                                                         [0, 0, 1]]), # Rotation matrix R rotating so that vec_body = R*vec_hsi.
@@ -123,29 +133,31 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     custom_config = {'General':
                         {'mission_dir': DATA_DIR,
                         'model_export_type': TERRAIN_TYPE, # Ray trace onto geoid
-                        'max_ray_length': 300}, # Max distance in meters from spectral imager to seafloor. Specim does not fly higher
+                        'max_ray_length': 3*elevation}, # Max distance in meters from spectral imager to seafloor. Used for cropping of elevation and geoid data
 
                     'Coordinate Reference Systems':
-                        {'proj_epsg' : EPSG_CODE, # The projected CRS UTM 32, common on mainland norway
+                        {'proj_epsg' : EPSG_CODE, # The projected CRS UTM system
                         'geocsc_epsg_export' : 4978, # 3D cartesian system for earth consistent with GPS frame (but inconsistent with eurasian techtonic plate)
                         'dem_epsg' : EPSG_CODE, # (Optional) If you have a DEM this can be used
-                        'pos_epsg_orig' : 4978}, # The CRS of the positioning data we deliver to the georeferencing
+                        'pos_epsg_orig' : 4978,
+                        'dem_ref': dem_ref}, # The CRS of the positioning data we deliver to the georeferencing
 
                     'Orthorectification':
                         {'resample_rgb_only': False, # True can be good choice for speed during DEV
                          'resample_ancillary': True,
                         'resolutionhyperspectralmosaic': RESOLUTION_ORTHOMOSAIC, # Resolution in m
                         'raster_transform_method': 'north_east'}, # North-east oriented rasters.
+                    
+                    'HDF.raw_nav': {
+                        'rotation_reference_type' : 'eul_ZYX', # The vehicle orientations are given in Yaw, Pitch, Roll from the NAV system
+                        'is_global_rot' : False, # The vehicles orientations from NAV system are Yaw, Pitch, Roll
+                        'eul_is_degrees' : True}, # And given in degrees
                     'Absolute Paths': {
                         'geoid_path' : GEOID_PATH,
-                        'orthomosaic_reference_folder' : os.path.join(specim_mission_folder, "orthomosaic"),
+                        'orthomosaic_reference_folder' : os.path.join(hsi_mission_folder, "orthomosaic"),
                         'ref_ortho_reshaped' : os.path.join(DATA_DIR, "Intermediate", "RefOrthoResampled"),
                         'ref_gcp_path' : os.path.join(DATA_DIR, "Intermediate", "gcp.csv"),
-                        'calib_file_coreg' : os.path.join(DATA_DIR, "Output", "HSI_coreg.xml"),
-                        # (above) The georeferencing allows processing using norwegian geoid NN2000 and worldwide EGM2008. Also, use of seafloor terrain models are supported. '
-                        # At the moment refractive ray tracing is not implemented, but it could be relatively easy by first ray tracing with geoid+tide, 
-                        # and then ray tracing from water
-                        #'tide_path' : 'D:/HyperspectralDataAll/HI/2022-08-31-060000-Remoy-Specim/Input/tidevann_nn2000_NMA.txt'
+                        'calib_file_coreg' : os.path.join(DATA_DIR, "Output", "HSI_coreg.xml")
                         },
                     
                     # If coregistration is done, then the data must be stored after processing somewhere
@@ -176,6 +188,7 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
 
     if TERRAIN_TYPE == 'geoid':
         custom_config['Absolute Paths']['geoid_path'] = GEOID_PATH
+        custom_config['General']['add_geoid_corners'] = False # There is no need for adding these interpolation points if using a geoid
         #'geoid_path' : 'data/world/geoids/egm08_25.gtx'
     elif TERRAIN_TYPE == 'dem_file':
         custom_config['Absolute Paths']['dem_path'] = DEM_PATH
@@ -187,33 +200,35 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
         custom_config['Orthorectification']['resample_rgb_only'] = True
         
         # Here you can set which camera parameters to optimize
-        cam_calibrate_dict = {'calibrate_boresight': False,
-                          'calibrate_camera': False,
-                          'calibrate_lever_arm': False,
-                          'calibrate_cx': False,
-                          'calibrate_f': False,
-                          'calibrate_k1': False,
-                          'calibrate_k2': False,
-                          'calibrate_k3': False
-                          }
-
-        # Here you can set which time-varying errors to estimate
-        calibrate_dict_extr = {'calibrate_pos_x': True,
-                          'calibrate_pos_y': True,
-                          'calibrate_pos_z': True,
-                          'calibrate_roll': False,
-                          'calibrate_pitch': False,
-                          'calibrate_yaw': True}
-        
-        coreg_dict = {'calibrate_dict': cam_calibrate_dict,
-                      'calibrate_per_transect': True, # Whether to calibrate on each transect seperately (True) or to use an entire set of transects for calibration (False)
-                      'calibrate_dict_extr': calibrate_dict_extr,
-                      'time_node_spacing': 10, #s (set to really large number to yield single node, constant correction)
-                      'hard_threshold_m': 10, # m
-                      'pos_err_ref_frame': 'ned', # ['ecef' or 'ned'] The ref frame to estimate position errors in
-                      'time_interpolation_method': 'linear',
-                      'sigma_param' : np.array([2, 2, 5, 0.1, 0.1, 1]) # north [m], east [m], down [m], roll [deg], pitch [deg], yaw [deg] (is different for RTK/PPK!!!!)
-                      }
+        if cam_calibrate_dict is None:
+            cam_calibrate_dict = {'calibrate_boresight': False,
+                            'calibrate_camera': False,
+                            'calibrate_lever_arm': False,
+                            'calibrate_cx': False,
+                            'calibrate_f': False,
+                            'calibrate_k1': False,
+                            'calibrate_k2': False,
+                            'calibrate_k3': False
+                            }
+        if calibrate_dict_extr is None:
+            # Here you can set which time-varying errors to estimate
+            calibrate_dict_extr = {'calibrate_pos_x': True,
+                            'calibrate_pos_y': True,
+                            'calibrate_pos_z': True,
+                            'calibrate_roll': False,
+                            'calibrate_pitch': False,
+                            'calibrate_yaw': True}
+            
+        if coreg_dict is None:
+            coreg_dict = {'calibrate_dict': cam_calibrate_dict,
+                        'calibrate_per_transect': True, # Whether to calibrate on each transect seperately (True) or to use an entire set of transects for calibration (False)
+                        'calibrate_dict_extr': calibrate_dict_extr,
+                        'time_node_spacing': 1000, #s (set to really large number to yield single node, constant correction)
+                        'hard_threshold_m': 10, # m
+                        'pos_err_ref_frame': 'ned', # ['ecef' or 'ned'] The ref frame to estimate position errors in
+                        'time_interpolation_method': 'linear',
+                        'sigma_param' : np.array([2, 2, 5, 0.1, 0.1, 1]) # north [m], east [m], down [m], roll [deg], pitch [deg], yaw [deg] (is different for RTK/PPK!!!!)
+                        }
     else:
         # When no coregistration is done, then resample datacube
         custom_config['Orthorectification']['resample_rgb_only'] = False
@@ -221,7 +236,7 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     # 
     if fast_mode:
         custom_config['Orthorectification']['resample_rgb_only'] = True
-        custom_config['Orthorectification']['resolutionhyperspectralmosaic'] = 0.05
+        custom_config['Orthorectification']['resolutionhyperspectralmosaic'] = 1
 
 
     # Customizes the config file according to settings if it does not exist
@@ -272,7 +287,7 @@ def main(config_yaml, specim_mission_folder, geoid_path, config_template_path, l
     #visualize.show_mesh_camera(config, show_mesh = True, show_pose = True, ref_frame='ENU')
 
     # Step 1: Direct georeferencing
-    #georeference.main(config_file)
+    georeference.main(config_file)
 
     # Step 2: Orthorectify the direct georeferenced data (incl metadata) i.e. resampling
     orthorectification.main(config_file)
